@@ -2,7 +2,18 @@ from unittest import TestCase
 from datetime import datetime
 from OpenSSL.crypto import X509Store
 
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.serialization import Encoding
+
 from webauthn.helpers import base64url_to_bytes
+from webauthn.helpers.known_root_certs import (
+    google_hardware_attestation_root_1,
+    google_hardware_attestation_root_2,
+    google_hardware_attestation_root_3,
+    google_hardware_attestation_root_4,
+    google_hardware_attestation_root_5,
+)
 from webauthn.helpers.structs import AttestationFormat
 from webauthn import verify_registration_response
 
@@ -60,3 +71,59 @@ class TestVerifyRegistrationResponseAndroidKey(TestCase):
         assert verification.credential_id == base64url_to_bytes(
             "AYNe4CBKc8H30FuAb8uaht6JbEQfbSBnS0SX7B6MFg8ofI92oR5lheRDJCgwY-JqB_QSJtezdhMbf8Wzt_La5N0"
         )
+
+
+class TestGoogleHardwareAttestationRootCerts(TestCase):
+    def test_all_root_certs_are_valid_x509(self) -> None:
+        """All Google hardware attestation root certs should parse as valid X.509 certificates"""
+        certs = [
+            ("root_1", google_hardware_attestation_root_1),
+            ("root_2", google_hardware_attestation_root_2),
+            ("root_3", google_hardware_attestation_root_3),
+            ("root_4", google_hardware_attestation_root_4),
+            ("root_5", google_hardware_attestation_root_5),
+        ]
+        for name, cert_bytes in certs:
+            cert = x509.load_pem_x509_certificate(cert_bytes)
+            self.assertTrue(cert.subject, f"{name} should have a subject")
+
+    def test_root_5_is_ec_key(self) -> None:
+        """Root cert 5 uses an EC key (P-384), unlike roots 1-4 which use RSA"""
+        from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
+
+        cert = x509.load_pem_x509_certificate(google_hardware_attestation_root_5)
+        self.assertIsInstance(cert.public_key(), EllipticCurvePublicKey)
+
+    def test_root_5_fingerprint(self) -> None:
+        """Root cert 5 should have the expected SHA256 fingerprint"""
+        cert = x509.load_pem_x509_certificate(google_hardware_attestation_root_5)
+        fingerprint = cert.fingerprint(hashes.SHA256())
+        expected = bytes.fromhex(
+            "6D9DB4CE6C5C0B293166D08986E05774A8776CEB525D9E4329520DE12BA4BCC0"
+        )
+        self.assertEqual(fingerprint, expected)
+
+    def test_root_5_pem_round_trip_through_der(self) -> None:
+        """Root cert 5 PEM survives DER round-trip (the path android_key.py uses for matching)"""
+        cert = x509.load_pem_x509_certificate(google_hardware_attestation_root_5)
+        der_bytes = cert.public_bytes(Encoding.DER)
+        reloaded = x509.load_der_x509_certificate(der_bytes)
+        reloaded_pem = reloaded.public_bytes(Encoding.PEM)
+        self.assertEqual(reloaded_pem, google_hardware_attestation_root_5)
+
+    def test_root_5_accepted_as_known_root(self) -> None:
+        """Root cert 5 should be recognized by the same logic android_key.py uses"""
+        pem_root_certs_bytes = [
+            google_hardware_attestation_root_1,
+            google_hardware_attestation_root_2,
+            google_hardware_attestation_root_3,
+            google_hardware_attestation_root_4,
+            google_hardware_attestation_root_5,
+        ]
+
+        cert = x509.load_pem_x509_certificate(google_hardware_attestation_root_5)
+        der_bytes = cert.public_bytes(Encoding.DER)
+        reloaded = x509.load_der_x509_certificate(der_bytes)
+        x5c_root_cert_pem = reloaded.public_bytes(Encoding.PEM)
+
+        self.assertIn(x5c_root_cert_pem, pem_root_certs_bytes)
