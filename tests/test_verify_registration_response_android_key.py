@@ -2,18 +2,7 @@ from unittest import TestCase
 from datetime import datetime
 from OpenSSL.crypto import X509Store
 
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.serialization import Encoding
-
 from webauthn.helpers import base64url_to_bytes
-from webauthn.helpers.known_root_certs import (
-    google_hardware_attestation_root_1,
-    google_hardware_attestation_root_2,
-    google_hardware_attestation_root_3,
-    google_hardware_attestation_root_4,
-    google_hardware_attestation_root_5,
-)
 from webauthn.helpers.structs import AttestationFormat
 from webauthn import verify_registration_response
 
@@ -73,57 +62,53 @@ class TestVerifyRegistrationResponseAndroidKey(TestCase):
         )
 
 
-class TestGoogleHardwareAttestationRootCerts(TestCase):
-    def test_all_root_certs_are_valid_x509(self) -> None:
-        """All Google hardware attestation root certs should parse as valid X.509 certificates"""
-        certs = [
-            ("root_1", google_hardware_attestation_root_1),
-            ("root_2", google_hardware_attestation_root_2),
-            ("root_3", google_hardware_attestation_root_3),
-            ("root_4", google_hardware_attestation_root_4),
-            ("root_5", google_hardware_attestation_root_5),
-        ]
-        for name, cert_bytes in certs:
-            cert = x509.load_pem_x509_certificate(cert_bytes)
-            self.assertTrue(cert.subject, f"{name} should have a subject")
+class TestVerifyRegistrationResponseAndroidKeyUsingNewRootCert(TestCase):
+    @patch_validate_certificate_chain_x509store_getter
+    def test_verify_attestation_android_key_root_5(
+        self,
+        patched_x509store: X509Store,
+    ) -> None:
+        """
+        This android-key attestation was generated on a Pixel via webauthn.io in April 2026
+        with `"residentKey": "discouraged"` and `"attestation": "direct"`. Its certificate
+        chain terminates at Google's Key Attestation CA1 root (root_5, EC P-384).
+        """
+        credential = """{
+            "id": "AX4Eu6E9W5l7EYF332_DpmACKfhWHrQoanejV3DwOM8aMiU7d1iUy-CxLsStoA1HYQMQGN7ErUvnmvZeDA4KBdw",
+            "rawId": "AX4Eu6E9W5l7EYF332_DpmACKfhWHrQoanejV3DwOM8aMiU7d1iUy-CxLsStoA1HYQMQGN7ErUvnmvZeDA4KBdw",
+            "response": {
+                "attestationObject": "o2NmbXRrYW5kcm9pZC1rZXlnYXR0U3RtdKNjYWxnJmNzaWdYSDBGAiEAp0MHPycT7ocYSXpBbQe0khhz22nesqcKq-Og5xz8H4sCIQDegeE3GNu8LGxD4L3F4L8fAIjXITuW0ODcP0ngS0BS-mN4NWOFWQL4MIIC9DCCApmgAwIBAgIBATAKBggqhkjOPQQDAjA5MQwwCgYDVQQKEwNURUUxKTAnBgNVBAMTIGUyODNiZTZiMmJkYjU2MjYwYTVhYzYyMzlmNmY5ODY4MB4XDTcwMDEwMTAwMDAwMFoXDTQ4MDEwMTAwMDAwMFowHzEdMBsGA1UEAxMUQW5kcm9pZCBLZXlzdG9yZSBLZXkwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARdB64CxFK2A572mKTRRikavZDLKngQqm80FVpqw5-8korwtw2QqwkPz_Xj9Dcy4TBnex3oEqiJ90rroHdhqJR3o4IBqjCCAaYwDgYDVR0PAQH_BAQDAgeAMIIBkgYKKwYBBAHWeQIBEQSCAYIwggF-AgIBkAoBAQICAZAKAQEEIGvN7gBWz3WcYMPF3SFuPrRu5H8lHiF0JAxsfGF51kloBAAwgZ2_hT0IAgYBnf62vzq_hUVnBGUwYzE9MBsEFmNvbS5nb29nbGUuYW5kcm9pZC5nc2YCASQwHgQWY29tLmdvb2dsZS5hbmRyb2lkLmdtcwIED5gsOzEiBCDw_WxbQQ8lyyXDtTNGyJcvrjD47nQR35EEgK1rLWDbg7-FVCIEIE84PjFjzHGHbrGKRo_QmAC_16Zw_aTexxUfJMDWZ_wIMIGpoQUxAwIBAqIDAgEDowQCAgEApQUxAwIBBKoDAgEBv4N4AwIBA7-DeQMCAQq_hT4DAgEAv4VATDBKBCCd4l-wK7VTDUQUnRSEN8guJn5VcyJTCqbwOwrC6Skx2gEB_woBAAQgPdTAYh22lPyCQzjCQkOvEsrhWr1NCpWIaPo3B8tAmrG_hUEFAgMCcQC_hUIFAgMDF2y_hU4GAgQBNSY1v4VPBgIEATUmNTAKBggqhkjOPQQDAgNJADBGAiEAgaBPFr0CgsYRgms9sjMf7hSWPegPiX_3UH84JgWmPz4CIQCMLMlm_8BVe0gZWsCOURXD5Su-tfMsLmWX_F0lSPscYFkB5DCCAeAwggGGoAMCAQICEQDig75rK9tWJgpaxiOfb5hoMAoGCCqGSM49BAMCMCkxEzARBgNVBAoTCkdvb2dsZSBMTEMxEjAQBgNVBAMTCURyb2lkIENBMzAeFw0yNjA0MjUxOTMwMTdaFw0yNjA1MDcyMDU0MzhaMDkxDDAKBgNVBAoTA1RFRTEpMCcGA1UEAxMgZTI4M2JlNmIyYmRiNTYyNjBhNWFjNjIzOWY2Zjk4NjgwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQERDeeybdXD1bUEvdRe9E9-AovvjMUP914BWpm_8E21-K5CBxDc6xkyKLqKbOP-XAeCcid6RU8eT3__v8L54ILo38wfTAdBgNVHQ4EFgQUJF_Et4Npv9x-foJEHBY9O4x1rR0wHwYDVR0jBBgwFoAUDLi9h8ywyG2Rn_S-rpVCpfqdu3cwDwYDVR0TAQH_BAUwAwEB_zAOBgNVHQ8BAf8EBAMCAgQwGgYKKwYBBAHWeQIBHgQMogEYQANmZ29vZ2xlMAoGCCqGSM49BAMCA0gAMEUCIQCfpMP63ILfT9ytVn71s6sBHHP346nZ1D6cF13wUKBJfgIgMIgpTQADEjZZeZhiz_GI7qQqxdCcwgyWfomN4eKOS7NZAvQwggLwMIICdqADAgECAhQAhdoh8UZcdDH8c3DByjfizbqMdzAKBggqhkjOPQQDAzApMRMwEQYDVQQKEwpHb29nbGUgTExDMRIwEAYDVQQDEwlEcm9pZCBDQTIwHhcNMjYwMzI2MTY0MTM4WhcNMjYwNjA0MTY0MTM3WjApMRMwEQYDVQQKEwpHb29nbGUgTExDMRIwEAYDVQQDEwlEcm9pZCBDQTMwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASpLsq7nL3EdiH8M7Ee3H25dyUqxUSeRQiPt2OTIQtDXIr7qGR7Us_P5IFVfBvnGm3QJ6wzNnEzo7Qlf_TNLKbJo4IBejCCAXYwDgYDVR0PAQH_BAQDAgIEMA8GA1UdEwEB_wQFMAMBAf8wHQYDVR0OBBYEFAy4vYfMsMhtkZ_0vq6VQqX6nbt3MB8GA1UdIwQYMBaAFMzKUIZMa9tKBuql7EwrS2Js212TMIGNBggrBgEFBQcBAQSBgDB-MHwGCCsGAQUFBzAChnBodHRwOi8vcHJpdmF0ZWNhLWNvbnRlbnQtNjllZmZiZjktMDAwMC0yZTE2LTkyN2UtYzgyYWRkNmJhNTA4LnN0b3JhZ2UuZ29vZ2xlYXBpcy5jb20vZmFkYjQ0MTQyM2QwZTczNDU1YTIvY2EuY3J0MIGCBgNVHR8EezB5MHegdaBzhnFodHRwOi8vcHJpdmF0ZWNhLWNvbnRlbnQtNjllZmZiZjktMDAwMC0yZTE2LTkyN2UtYzgyYWRkNmJhNTA4LnN0b3JhZ2UuZ29vZ2xlYXBpcy5jb20vZmFkYjQ0MTQyM2QwZTczNDU1YTIvY3JsLmNybDAKBggqhkjOPQQDAwNoADBlAjEA9hr1loPnDjTw0fvxZuS0D7fSWbZe1o6mvrNIanGI9-WELpiiN7MN0Wo4_YXQJRTDAjAq6TGskVPojQ0c0-7bVlSLji5sfGXx7SWKKdG43f7h2jwy-BoXnPjongvaeyL3rTZZAmowggJmMIIB66ADAgECAhEAkkJQGRkD47plMg79aiCF-zAKBggqhkjOPQQDAzBSMRwwGgYDVQQDDBNLZXkgQXR0ZXN0YXRpb24gQ0ExMRAwDgYDVQQLDAdBbmRyb2lkMRMwEQYDVQQKDApHb29nbGUgTExDMQswCQYDVQQGEwJVUzAeFw0yNjAyMDkxOTU5MThaFw0yOTAyMDgxOTU5MThaMCkxEzARBgNVBAoTCkdvb2dsZSBMTEMxEjAQBgNVBAMTCURyb2lkIENBMjB2MBAGByqGSM49AgEGBSuBBAAiA2IABEL-YTDqOWfDu7pjeI9SgP6eIGZAV4eoxZfEU765O-B8PdgZHNOo_xnZc8WDo8W5LVwCYtQvBBZ6AfHXSeaoGfu7QiCPAPEUJBFXWgAYsOq87EE1LmP-hgcCf2rJP6-wtaOBrTCBqjAfBgNVHSMEGDAWgBRSMrss-0ZDm9zWgakOZWbgNEHqQDBHBgNVHR8EQDA-MDygOqA4hjZodHRwczovL2FuZHJvaWQuZ29vZ2xlYXBpcy5jb20vYXR0ZXN0YXRpb24va2V5X2NhMS5jcmwwDgYDVR0PAQH_BAQDAgEGMB0GA1UdDgQWBBTMylCGTGvbSgbqpexMK0tibNtdkzAPBgNVHRMBAf8EBTADAQH_MAoGCCqGSM49BAMDA2kAMGYCMQD028BY-rWZJP1SP_U3PEk5wE1aPeUEoFLTDDUKx0jHXsw9YlX34uxuN5LPpBhzVI4CMQCwF81qLT0Vob1KB9EIKTdQNP2xwM_v4Niq-hAxMZHj_ry7faXZvWgSQS6SvBhceyJZAiYwggIiMIIBqKADAgECAhEAhKnQKXsOtYrn_w6A3nYGBTAKBggqhkjOPQQDAzBSMRwwGgYDVQQDDBNLZXkgQXR0ZXN0YXRpb24gQ0ExMRAwDgYDVQQLDAdBbmRyb2lkMRMwEQYDVQQKDApHb29nbGUgTExDMQswCQYDVQQGEwJVUzAeFw0yNTA3MTcyMjMyMThaFw0zNTA3MTUyMjMyMThaMFIxHDAaBgNVBAMME0tleSBBdHRlc3RhdGlvbiBDQTExEDAOBgNVBAsMB0FuZHJvaWQxEzARBgNVBAoMCkdvb2dsZSBMTEMxCzAJBgNVBAYTAlVTMHYwEAYHKoZIzj0CAQYFK4EEACIDYgAEI9ojcU7fPlsFCjxy6IRqzgeOoK0b-YsV9FPQywiyw8EQRTkJ9u3qwfnI4DGoSLlBqClTXJfgfCcZvs60FikNMHnu4fkRzObfgDkU2KNXezT9_RQ-XvNslxPHrHCowhGro0IwQDAPBgNVHRMBAf8EBTADAQH_MA4GA1UdDwEB_wQEAwIBBjAdBgNVHQ4EFgQUUjK7LPtGQ5vc1oGpDmVm4DRB6kAwCgYIKoZIzj0EAwMDaAAwZQIwRN-M878fCpF5HYJLunRlagP8sezqEOLjbaimJ8cRRpgvHAaVP1It2ORWnPRRQ5HnAjEAigbLEYpEdVOmqkZEWIm1AQ45On_6zUZzF5i5HbOH_zSVDK728AUKPoTgBdz6iyZGaGF1dGhEYXRhWMV0puqSE8mcL3SyJJKzIM9AJiqUwalQoDl_KSULYIQe8EUAAAAAuT_ZYfLmRi-xIoIAIkfeeABBAX4Eu6E9W5l7EYF332_DpmACKfhWHrQoanejV3DwOM8aMiU7d1iUy-CxLsStoA1HYQMQGN7ErUvnmvZeDA4KBdylAQIDJiABIVggXQeuAsRStgOe9pik0UYpGr2Qyyp4EKpvNBVaasOfvJIiWCCK8LcNkKsJD8_14_Q3MuEwZ3sd6BKoifdK66B3YaiUdw",
+                "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoiV3hpQkFUVktNQ1ZqQUVnQ2FVcC1DSmZWdklMQXRlN3FFQTlNd3RaQmZ5MTlIYkZFTVJ6NnU2ZDlYc09XMThYQU1rZ1c3QThpT3QzOEFMTnVmNDJkQXciLCJvcmlnaW4iOiJodHRwczovL3dlYmF1dGhuLmlvIiwiY3Jvc3NPcmlnaW4iOmZhbHNlfQ"
+            },
+            "type": "public-key",
+            "clientExtensionResults": {
+                "credProps": { "rk": false }
+            },
+            "authenticatorAttachment": "platform"
+        }"""
 
-    def test_root_5_is_ec_key(self) -> None:
-        """Root cert 5 uses an EC key (P-384), unlike roots 1-4 which use RSA"""
-        from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
-
-        cert = x509.load_pem_x509_certificate(google_hardware_attestation_root_5)
-        self.assertIsInstance(cert.public_key(), EllipticCurvePublicKey)
-
-    def test_root_5_fingerprint(self) -> None:
-        """Root cert 5 should have the expected SHA256 fingerprint"""
-        cert = x509.load_pem_x509_certificate(google_hardware_attestation_root_5)
-        fingerprint = cert.fingerprint(hashes.SHA256())
-        expected = bytes.fromhex(
-            "6D9DB4CE6C5C0B293166D08986E05774A8776CEB525D9E4329520DE12BA4BCC0"
+        challenge = base64url_to_bytes(
+            "WxiBATVKMCVjAEgCaUp-CJfVvILAte7qEA9MwtZBfy19HbFEMRz6u6d9XsOW18XAMkgW7A8iOt38ALNuf42dAw"
         )
-        self.assertEqual(fingerprint, expected)
+        rp_id = "webauthn.io"
+        expected_origin = "https://webauthn.io"
 
-    def test_root_5_pem_round_trip_through_der(self) -> None:
-        """Root cert 5 PEM survives DER round-trip (the path android_key.py uses for matching)"""
-        cert = x509.load_pem_x509_certificate(google_hardware_attestation_root_5)
-        der_bytes = cert.public_bytes(Encoding.DER)
-        reloaded = x509.load_der_x509_certificate(der_bytes)
-        reloaded_pem = reloaded.public_bytes(Encoding.PEM)
-        self.assertEqual(reloaded_pem, google_hardware_attestation_root_5)
+        # Setting the time to something that satisfies all these:
+        # (Leaf) 19700101000000Z <-> 20480101000000Z
+        # (Int.) 20260425193017Z <-> 20260507205438Z <- Earliest expiration
+        # (Int.) 20260326164138Z <-> 20260604164137Z
+        # (Int.) 20260209195918Z <-> 20290208195918Z
+        # (Root) 20250717223218Z <-> 20350715223218Z
+        patched_x509store.set_time(datetime(2026, 4, 26, 0, 0, 0))
 
-    def test_root_5_accepted_as_known_root(self) -> None:
-        """Root cert 5 should be recognized by the same logic android_key.py uses"""
-        pem_root_certs_bytes = [
-            google_hardware_attestation_root_1,
-            google_hardware_attestation_root_2,
-            google_hardware_attestation_root_3,
-            google_hardware_attestation_root_4,
-            google_hardware_attestation_root_5,
-        ]
+        verification = verify_registration_response(
+            credential=credential,
+            expected_challenge=challenge,
+            expected_origin=expected_origin,
+            expected_rp_id=rp_id,
+        )
 
-        cert = x509.load_pem_x509_certificate(google_hardware_attestation_root_5)
-        der_bytes = cert.public_bytes(Encoding.DER)
-        reloaded = x509.load_der_x509_certificate(der_bytes)
-        x5c_root_cert_pem = reloaded.public_bytes(Encoding.PEM)
-
-        self.assertIn(x5c_root_cert_pem, pem_root_certs_bytes)
+        assert verification.fmt == AttestationFormat.ANDROID_KEY
+        assert verification.credential_id == base64url_to_bytes(
+            "AX4Eu6E9W5l7EYF332_DpmACKfhWHrQoanejV3DwOM8aMiU7d1iUy-CxLsStoA1HYQMQGN7ErUvnmvZeDA4KBdw"
+        )
