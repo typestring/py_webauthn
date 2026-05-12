@@ -16,7 +16,7 @@ classifiers = [
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "pyasn1>=0.6.2",
     "cbor2>=5.9.0,<6.0.0",
